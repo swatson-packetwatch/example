@@ -31,7 +31,7 @@ jobs:
         with:
           input: base/app.yml # specify configuration file to scan here
           format: template
-          template: template/sarif.tpl
+          template: templates/sarif.tpl
           output: kubesec-results.sarif
           exit-code: "0"
 
