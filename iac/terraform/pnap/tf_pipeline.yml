@@ -7,39 +7,48 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'iac/terraform/pnap/**'  
 
 jobs:
   security:
     runs-on: ubuntu-latest
+    name: Security Scan
+    defaults:
+      run:
+        working-directory: iac/terraform/pnap
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v2
-
-      - name: Initialize Terraform
-        run: terraform init
-
-      - name: Run tfsec
-        uses: aquasecurity/tfsec-action@v1
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          args: --format json --out tfsec-report.json
+          scan-type: 'fs'
+          scanners: 'vuln,misconfig,secret,license'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Upload tfsec report
-        uses: actions/upload-artifact@v3
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          name: tfsec-report
+          sarif_file: 'trivy-results.sarif'
 
   validate:
     runs-on: ubuntu-latest
+    name: Validate Terraform
+    defaults:
+      run:
+        working-directory: iac/terraform/pnap
     needs: [security]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
 
       - name: Initialize Terraform
         run: terraform init
@@ -55,15 +64,42 @@ jobs:
       
   deploy:
     runs-on: ubuntu-latest
+    name: Deploy Terraform
+    defaults:
+      run:
+        working-directory: iac/terraform/pnap
     needs: [validate]
     environment: 
       name: dev
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
 
       - name: Apply Terraform
         run: terraform apply -auto-approve tfplan.out
+
+  dast:
+    runs-on: ubuntu-latest
+    name: DAST Scan
+    defaults:
+      run:
+        working-directory: iac/terraform/pnap
+    needs: [deploy]
+    environment: 
+      name: dev
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+
+      - name: Run OWASP ZAP DAST
+        run: |
+          pip install zapcli
+          zapcli quick-scan --self-contained --start-options '-config api.disablekey=true' --target 'http://${{var.URL}}' --output-format 'json' --output 'zap-results.json'
+    
+
+

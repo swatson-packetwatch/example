@@ -1,0 +1,35 @@
+name: App Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'iac/app/pnap/**'  
+
+jobs:
+  dast:
+    runs-on: ubuntu-latest
+    name: DAST Scan
+    defaults:
+      run:
+        working-directory: iac/app/pnap
+    #needs: [deploy]
+    environment: 
+      name: dev
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+
+      - name: Run OWASP ZAP DAST
+        run: |
+          pip install zapcli
+          zapcli quick-scan --self-contained --start-options '-config api.disablekey=true' --target 'http://${{var.URL}}' --output-format 'json' --output 'zap-results.json'
+    
+
+
