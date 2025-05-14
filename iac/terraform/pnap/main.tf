@@ -58,5 +58,5 @@ resource "proxmox_vm_qemu" "k8_lb" {
   clone = "ubuntu-template"
   storage = "local-lvm"
   cores = 2
-  memory = 4096
+  memory = 2048
 }
