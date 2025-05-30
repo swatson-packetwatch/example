@@ -1,46 +1,61 @@
 ---
 - hosts: primary
   vars:
-    LB_URL: "{{ lookup('env', 'LB_URL') }}"
+      LB_URL: "{{ lookup('env', 'LB_URL') }}"
   tasks:
     - name: Deploy Kubernetes cluster
       shell:
-         "curl -sfL https://get.rke2.io | sh -"    
-
-    - name: Get config
-      - fetch:
-          src: /etc/rancher/rke2/rke2.yaml
-          dest: /tmp/rke2.yaml
-          flat: yes    
-
-    - name: Edit config
-      shell: |
-        echo "tls-san: \   - {{LB_URL}}" >> /etc/rancher/rke2/config.yaml
-        echo "node-taint: \   - CriticalAddonsOnly=true:NoExecute" >> /etc/rancher/rke2/config.yaml
+         "curl -sfL https://get.rke2.io | sh -"
 
     - name: Enable and start RKE2 service
       systemd:
         name: rke2-server
         enabled: true
-        state: started 
+        state: started
+
+    - name: Get config
+      fetch:
+          src: /etc/rancher/rke2/rke2.yaml
+          dest: /tmp/rke2.yaml
+          flat: yes
+
+    - name: Get token
+      fetch:
+          src: /var/lib/rancher/rke2/server/node-token
+          dest: /tmp/node-token
+          flat: yes
+
+    - name: Edit config
+      shell: |
+        printf "tls-san: \n   - {{LB_URL}}\n" >> /etc/rancher/rke2/config.yaml
+        printf "node-taint: \n   - CriticalAddonsOnly=true:NoExecute\n" >> /etc/rancher/rke2/config.yaml
+
+    - name: Restart RKE2 service
+      systemd:
+        name: rke2-server
+        state: restarted
+
 
 - hosts: master
   vars:
-    LB_URL: "{{ lookup('env', 'LB_URL') }}"
+      LB_URL: "{{ lookup('env', 'LB_URL') }}"
   tasks:
     - name: Join nodes to the Kubernetes cluster
       shell: |
         curl -sfL https://get.rke2.io |  sh -
+        mkdir -p /etc/rancher/rke2/
 
-    - name: Copy config to master node
+    - name: Copy token
       copy:
-        src: /tmp/rke2.yaml
-        dest: /etc/rancher/rke2/config.yaml
+        src: /tmp/node-token
+        dest: /tmp/node-token
 
-    - name: Edit config
+    - name: Create config
       shell: |
-        echo "tls-san: \   - {{LB_URL}}" >> /etc/rancher/rke2/config.yaml
-        echo "node-taint: \   - CriticalAddonsOnly=true:NoExecute" >> /etc/rancher/rke2/config.yaml
+        printf "server: https://{{LB_URL}}:9345\n" > /etc/rancher/rke2/config.yaml
+        echo "token: $(cat /tmp/node-token)" >> /etc/rancher/rke2/config.yaml
+        printf "tls-san: \n   - {{LB_URL}}\n" >> /etc/rancher/rke2/config.yaml
+        printf "node-taint: \n   - CriticalAddonsOnly=true:NoExecute\n" >> /etc/rancher/rke2/config.yaml
 
     - name: Enable and start RKE2 service
       systemd:
@@ -49,20 +64,26 @@
         state: started
 
 - hosts: nodes
+  vars:
+      LB_URL: "{{ lookup('env', 'LB_URL') }}"
   tasks:
     - name: Join nodes to the Kubernetes cluster
       shell: |
         curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sh -
+        mkdir -p /etc/rancher/rke2/
 
-    - name: Copy config to master node
+    - name: Copy token
       copy:
-        src: /tmp/rke2.yaml
-        dest: /etc/rancher/rke2/config.yaml
+        src: /tmp/node-token
+        dest: /tmp/node-token
+
+    - name: Create config
+      shell: |
+        printf "server: https://{{LB_URL}}:9345\n" > /etc/rancher/rke2/config.yaml
+        echo "token: $(cat /tmp/node-token)" >> /etc/rancher/rke2/config.yaml
 
     - name: Enable and start RKE2 service
       systemd:
         name: rke2-agent
         enabled: true
-        state: started             
-
-        
+        state: started
